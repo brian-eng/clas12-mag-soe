@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<head>
+<meta charset="utf-8">
+<title>SOE Timestamp Converter</title>
+<script>
+// SOE Channel Descriptions for Solenoid
+var sol_desc = ['Lead Temperature',
+'LHe Liquid Level 8620SC',
+'LHe Liquid Level 8670SC',
+'Cryo-con Relay 1',
+'Cryo-con Relay 2',
+'SPARE',
+'PLC Fast Dump',
+'Vacuum Sum',
+'PLC Watchdog',
+'Current Leads Water Flow',
+'VT Cable',
+'System Cable',
+'QD 1',
+'QD 2',
+'SPARE',
+'SPARE'];
+// SOE Channel Descriptions for Torus
+var tor_desc = ['Lead Temperature',
+'LHe Liquid Level 8120SC',
+'Cryo-con Relay 1',
+'Cryo-con Relay 2',
+'SPARE',
+'SPARE',
+'PLC Fast Dump',
+'Vacuum Sum',
+'PLC Watchdog',
+'Current Leads Water Flow',
+'VT Cable',
+'System Cable',
+'QD 1',
+'QD 2',
+'QD 3',
+'SPARE'];
+// IE is missing padStart() so implement our own to pad left with zeros
+function pad(str, len) {
+	var p = Array(len).join('0');
+	return (p + str).slice(-len);
+}
+// Convert a DINT from PLC to Binary
+function dec2bin(dec){
+	// abort if input is empty
+	if (dec == '')
+		return '';
+	// If number is negative convert as if it was 31-bit positive
+	// and prefix with a 1
+	if (dec < 0) {
+		return "1" + pad(((dec * -1) >>> 0).toString(2), 31);
+	}
+	// Normal 32-bit conversion, make sure we pad the number with 0s
+	else {
+		return pad((dec >>> 0).toString(2), 32);
+	}
+}
+// Convert 64-bit binary number to Timestamp
+// Last 6 digits are microseconds, remaining are seconds since Unix epoch
+// Returns both Date() and a human-readable string
+function mkts(bin_str) {
+	// Abort if input is empty
+	if (bin_str == '')
+		return ['', ''];
+	// Convert from binary to integer
+	var dec = parseInt(bin_str, 2).toString();
+	// Get the microseconds
+	var us = dec.substr(-6);
+	// Convert seconds since epoch, making sure to discard us
+	var dt = new Date(dec.slice(0, -6) * 1000);
+	// Date() can only handle ms, so get that from us
+	dt.setMilliseconds(us.slice(0, 3));
+	// Generate human-readable string
+	// MM/DD/YYYY HH:mm:SS.uuuuuu
+	// MM = month
+	// DD = day
+	// YYYY = year (4 digits)
+	// HH = hour (0-23)
+	// mm = minutes
+	// SS = seconds
+	// uuuuuu = microseconds
+	var dt_s = dt.toLocaleDateString() + ' ';
+	dt_s += dt.toLocaleTimeString('en-US', {hour12: false}) + '.' + us;
+	return [dt, dt_s];
+}
+// Convert PLC tags into timestamps and sort the SOE channels by time
+function convert() {
+	// SOE Object
+	// id = SOE channel #
+	// dt_s = Human-readable timestamp string
+	// l = low bits of PLC tag
+	// h = high bits of PLC tag
+	// bin_d = binary representation of PLC tag
+	// d_t = Date() of timestamp (used for sorting array)
+	var SOE_O = {	id: {writable: true},
+								dt_s: {writable: true},
+								l: {writable: true},
+								h: {writable: true},
+								bin_d: {writable: true},
+								d_t: {writable: true}};
+	var soe = [];
+	var elem = document.forms[0].getElementsByTagName("input");
+	for (i = 0; i < elem.length; i++) {
+		if (elem[i].type == "number") {
+			// Figure out which SOE channel and bits we're dealing with
+			var s = elem[i].name.search('_');
+			var f = parseInt(elem[i].name.substr(s - 2, 2));
+			var l = (elem[i].name[s + 1]);
+			// Check if SOE array has this channel yet, if not add it
+			if (typeof soe[f] === 'undefined') {
+				soe[f] = (Object.create(SOE_O));
+				soe[f].id = f;
+			}
+			if (l == 'l') {
+				soe[f].l = elem[i].value;
+			}
+			else if (l == 'h') {
+				soe[f].h = elem[i].value;
+			}
+		}
+	}
+
+	// Populate binary unix epoch and convert it to a human readable string
+	soe.map(function(obj) {
+		obj.bin_d = dec2bin(obj.h) + dec2bin(obj.l);
+		var r = mkts(obj.bin_d);
+		obj.d_t = r[0];
+		obj.dt_s = r[1];
+	});
+
+	// Delete elements that don't have a converted string 
+	soe = soe.filter(function(o){return o.dt_s != '';});
+	// Sort the remaining elements based on the epoch Date()
+	soe.sort(function(a,b){return (a.d_t - b.d_t)});
+	// Get which magnet is select to fill out SOE descriptions
+	var mag = document.querySelector('input[name="mag"]:checked').value;
+	// We only care about the SOE chan and date/time string from the array
+	var out = '<table><tr><th>Chan</th><th>Timestamp</th><th>Description</th></tr>\n';
+	out += '<tr><td colspan="3"><hr /></td></tr>\n';
+	soe.forEach(function(o){out += ('<tr><th>' + o.id + '</th><td>' + o.dt_s + '</td><td>' + ((mag == 'sol') ? sol_desc[o.id] : tor_desc[o.id]) + '</td></tr><tr><td colspan="3"><hr /></td></tr>\n');});
+	out += '</table>';
+	document.getElementById("output").innerHTML = out;
+}
+function clr() {
+document.getElementById("output").innerHTML = '';
+}
+</script>
+<style>
+th, td { padding: 0px 10px 0px 10px}
+</style>
+</head>
+<body>
+<div style="display:inline-block">
+<form>
+<script>
+document.write('<table>');
+document.write('<tr><td>&nbsp;</td><th>Lower Bits [0]</th><th>Upper Bits [1]</th></tr>\n');
+for (i = 0; i < 16; i++) {
+	var ip = ('00' + i.toString()).slice(-2);
+	document.write('<tr><th>SOE Channel ' + ip + '</th>\n');
+	document.write('<td><input type="number" name="soe' + ip + '_l"></td>\n');
+	document.write('<td><input type="number" name="soe' + ip + '_h"></td>\n');
+	document.write('<tr><td colspan="3"><hr /></td></tr>\n');
+}
+document.write('<tr><th colspan="3"><button type="button" onclick="convert()">Convert & Sort</button>&nbsp;<button type="reset" onclick="clr()">Clear Fields</button></th></tr>\n');
+document.write('<tr><td colspan="3" style="padding: 10px; text-align: center"><input type="radio" name="mag" value="sol" checked>Solenoid<input type="radio" name="mag" value="tor">Torus</td></tr>\n');
+document.write('</table>');
+</script>
+</form>
+</div>
+<div id="output" style="display: inline-block; vertical-align:top;"></div>
+</body>
