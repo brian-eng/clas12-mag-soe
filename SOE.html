@@ -47,15 +47,8 @@ function dec2bin(dec){
 	// abort if input is empty
 	if (dec == '')
 		return '';
-	// If number is negative convert as if it was 31-bit positive
-	// and prefix with a 1
-	if (dec < 0) {
-		return "1" + pad(((dec * -1) >>> 0).toString(2), 31);
-	}
 	// Normal 32-bit conversion, make sure we pad the number with 0s
-	else {
-		return pad((dec >>> 0).toString(2), 32);
-	}
+	return pad((dec >>> 0).toString(2), 32);
 }
 // Convert 64-bit binary number to Timestamp
 // Last 6 digits are microseconds, remaining are seconds since Unix epoch
